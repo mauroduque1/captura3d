@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Northing Captura 3D</title>
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#0f1720">
+<style>
+:root{--bg:#0f1720;--fg:#e8eef3;--ac:#2fb37a;--wr:#e0a030;--bad:#e05050}
+*{box-sizing:border-box;margin:0}body{background:var(--bg);color:var(--fg);font:15px system-ui,sans-serif;height:100dvh;overflow:hidden}
+video{position:fixed;inset:0;width:100%;height:100%;object-fit:cover}
+.top,.bot{position:fixed;left:0;right:0;padding:12px 16px;display:flex;gap:10px;align-items:center;background:linear-gradient(#000a,#0000)}
+.top{top:0}.bot{bottom:0;background:linear-gradient(#0000,#000c);justify-content:space-between;padding-bottom:max(16px,env(safe-area-inset-bottom))}
+input{flex:1;background:#0008;color:var(--fg);border:1px solid #fff3;border-radius:8px;padding:8px}
+button{background:#0009;color:var(--fg);border:1px solid #fff4;border-radius:10px;padding:10px 12px;font:inherit}
+#shot{width:76px;height:76px;border-radius:50%;background:#fff;border:6px solid #fff6}
+#shot:active{transform:scale(.92)}.on{background:var(--ac)!important}
+#meter{position:fixed;top:64px;left:16px;right:16px;height:6px;background:#fff2;border-radius:3px}
+#bar{height:100%;width:0;border-radius:3px;background:var(--bad);transition:width .15s}
+#info{position:fixed;top:78px;left:16px;font-size:13px;text-shadow:0 1px 2px #000}
+#flash{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;transition:opacity .2s}
+#start{position:fixed;inset:0;display:grid;place-items:center;background:var(--bg);padding:24px;text-align:center}
+#start p{max-width:420px;line-height:1.5;margin:12px 0 20px;opacity:.85}
+</style></head><body>
+<video id="v" playsinline muted autoplay></video>
+<div class="top"><input id="name" placeholder="Nombre del proyecto (ej. Hotel_Hab101)"></div>
+<div id="meter"><div id="bar"></div></div><div id="info">Nitidez: –  ·  Fotos: 0</div>
+<div class="bot"><button id="auto">Auto: off</button><button id="shot" aria-label="Capturar"></button><button id="zip">Exportar ZIP</button></div>
+<div id="flash"></div>
+<div id="start"><div><h2>Northing · Captura 3D</h2>
+<p>Camina despacio alrededor del espacio. Cada foto debe compartir ~70% con la anterior. Toma vueltas a dos alturas (pecho y rodilla) y apunta a esquinas, no a paredes lisas. Luz pareja, sin moverte rápido.</p>
+<button id="go" class="on">Iniciar cámara</button></div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+const v=document.getElementById('v'),bar=document.getElementById('bar'),info=document.getElementById('info');
+const shots=[];let sharp=0,auto=false,lastAuto=0,lastSig=null;
+const MIN_SHARP=60;            // umbral de nitidez (varianza Laplaciana)
+const AUTO_MS=900;             // intervalo mínimo en modo auto
+const sm=document.createElement('canvas');sm.width=160;sm.height=120;const sx=sm.getContext('2d',{willReadFrequently:true});
+document.getElementById('go').onclick=async()=>{
+  try{const s=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:'environment',width:{ideal:4032},height:{ideal:3024}}});
+  v.srcObject=s;document.getElementById('start').remove();loop();}catch(e){alert('No se pudo abrir la cámara: '+e.message)}
+};
+function analyze(){ // nitidez + firma de baja resolución para detectar movimiento
+  sx.drawImage(v,0,0,160,120);const d=sx.getImageData(0,0,160,120).data,g=new Float32Array(19200);
+  for(let i=0;i<19200;i++)g[i]=d[i*4]*.299+d[i*4+1]*.587+d[i*4+2]*.114;
+  let s=0,s2=0,n=0;for(let y=1;y<119;y++)for(let x=1;x<159;x++){const i=y*160+x,l=4*g[i]-g[i-1]-g[i+1]-g[i-160]-g[i+160];s+=l;s2+=l*l;n++}
+  const sig=new Float32Array(48);for(let i=0;i<19200;i++){const x=(i%160)/20|0,y=(i/160|0)/20|0;sig[y*8+x]+=g[i]/400}
+  return{sharp:s2/n-(s/n)**2,sig}}
+function moved(sig){if(!lastSig)return 99;let m=0;for(let i=0;i<48;i++)m+=Math.abs(sig[i]-lastSig[i]);return m/48}
+function loop(){if(v.readyState>=2){const a=analyze();sharp=a.sharp;
+  const p=Math.min(100,sharp/(MIN_SHARP*2)*100);bar.style.width=p+'%';bar.style.background=sharp<MIN_SHARP?'var(--bad)':sharp<MIN_SHARP*1.5?'var(--wr)':'var(--ac)';
+  info.textContent=`Nitidez: ${sharp|0}  ·  Fotos: ${shots.length}`;
+  const mv=moved(a.sig);
+  if(auto&&Date.now()-lastAuto>AUTO_MS&&sharp>=MIN_SHARP&&mv>6&&mv<40)capture(a.sig); // se movió lo suficiente, sin exceso
+ }requestAnimationFrame(loop)}
+function capture(sig){if(sharp<MIN_SHARP){info.textContent='Foto movida, quédate quieto';return}
+  const c=document.createElement('canvas');c.width=v.videoWidth;c.height=v.videoHeight;c.getContext('2d').drawImage(v,0,0);
+  c.toBlob(b=>{shots.push(b)},'image/jpeg',.92);lastAuto=Date.now();lastSig=sig||analyze().sig;
+  const f=document.getElementById('flash');f.style.opacity=.6;setTimeout(()=>f.style.opacity=0,80);if(navigator.vibrate)navigator.vibrate(30)}
+document.getElementById('shot').onclick=()=>capture();
+document.getElementById('auto').onclick=e=>{auto=!auto;e.target.textContent='Auto: '+(auto?'on':'off');e.target.classList.toggle('on',auto)};
+document.getElementById('zip').onclick=async()=>{if(!shots.length)return alert('No hay fotos');
+  const name=(document.getElementById('name').value||'captura').replace(/[^\w-]/g,'_'),z=new JSZip(),f=z.folder('images');
+  shots.forEach((b,i)=>f.file(`img_${String(i).padStart(4,'0')}.jpg`,b));
+  z.file('meta.json',JSON.stringify({proyecto:name,fotos:shots.length,res:[v.videoWidth,v.videoHeight],fecha:new Date().toISOString(),ua:navigator.userAgent},null,1));
+  const blob=await z.generateAsync({type:'blob'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name+'.zip';a.click()};
+</script></body></html>
