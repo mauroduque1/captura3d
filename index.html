@@ -58,9 +58,24 @@ function capture(sig){if(sharp<MIN_SHARP){info.textContent='Foto movida, quédat
   const f=document.getElementById('flash');f.style.opacity=.6;setTimeout(()=>f.style.opacity=0,80);if(navigator.vibrate)navigator.vibrate(30)}
 document.getElementById('shot').onclick=()=>capture();
 document.getElementById('auto').onclick=e=>{auto=!auto;e.target.textContent='Auto: '+(auto?'on':'off');e.target.classList.toggle('on',auto)};
-document.getElementById('zip').onclick=async()=>{if(!shots.length)return alert('No hay fotos');
-  const name=(document.getElementById('name').value||'captura').replace(/[^\w-]/g,'_'),z=new JSZip(),f=z.folder('images');
-  shots.forEach((b,i)=>f.file(`img_${String(i).padStart(4,'0')}.jpg`,b));
-  z.file('meta.json',JSON.stringify({proyecto:name,fotos:shots.length,res:[v.videoWidth,v.videoHeight],fecha:new Date().toISOString(),ua:navigator.userAgent},null,1));
-  const blob=await z.generateAsync({type:'blob'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name+'.zip';a.click()};
+document.getElementById('zip').onclick=async()=>{
+  const btn=document.getElementById('zip');
+  if(!shots.length)return alert('No hay fotos');
+  if(typeof JSZip==='undefined')return alert('No cargó el compresor. Revisa internet y recarga la app (las fotos actuales se perderían: exporta después de recargar).');
+  try{
+    btn.disabled=true;
+    const name=(document.getElementById('name').value||'captura').replace(/[^\w-]/g,'_'),z=new JSZip(),f=z.folder('images');
+    shots.forEach((b,i)=>f.file(`img_${String(i).padStart(4,'0')}.jpg`,b));
+    z.file('meta.json',JSON.stringify({proyecto:name,fotos:shots.length,res:[v.videoWidth,v.videoHeight],fecha:new Date().toISOString(),ua:navigator.userAgent},null,1));
+    const blob=await z.generateAsync({type:'blob',compression:'STORE'},m=>{btn.textContent='Empacando '+(m.percent|0)+'%'});
+    const file=new File([blob],name+'.zip',{type:'application/zip'});
+    btn.textContent='Exportar ZIP';
+    if(navigator.canShare&&navigator.canShare({files:[file]})){
+      try{await navigator.share({files:[file],title:name});return}catch(e){if(e.name==='AbortError')return}
+    }
+    const a=document.createElement('a');a.href=URL.createObjectURL(file);a.download=file.name;document.body.appendChild(a);a.click();a.remove();
+    info.textContent='ZIP descargado: revisa la carpeta Descargas';
+  }catch(e){alert('Error al exportar: '+e.message)}
+  finally{btn.disabled=false;if(btn.textContent.startsWith('Empacando'))btn.textContent='Exportar ZIP'}
+};
 </script></body></html>
