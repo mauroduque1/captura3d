@@ -7,61 +7,98 @@
 :root{--bg:#0f1720;--fg:#e8eef3;--ac:#2fb37a;--wr:#e0a030;--bad:#e05050}
 *{box-sizing:border-box;margin:0}body{background:var(--bg);color:var(--fg);font:15px system-ui,sans-serif;height:100dvh;overflow:hidden}
 video{position:fixed;inset:0;width:100%;height:100%;object-fit:cover}
-.top,.bot{position:fixed;left:0;right:0;padding:12px 16px;display:flex;gap:10px;align-items:center;background:linear-gradient(#000a,#0000)}
-.top{top:0}.bot{bottom:0;background:linear-gradient(#0000,#000c);justify-content:space-between;padding-bottom:max(16px,env(safe-area-inset-bottom))}
+.top,.bot{position:fixed;left:0;right:0;padding:12px 16px;display:flex;gap:10px;align-items:center}
+.top{top:0;background:linear-gradient(#000b,#0000)}.bot{bottom:0;background:linear-gradient(#0000,#000c);justify-content:space-between;padding-bottom:max(16px,env(safe-area-inset-bottom))}
 input{flex:1;background:#0008;color:var(--fg);border:1px solid #fff3;border-radius:8px;padding:8px}
 button{background:#0009;color:var(--fg);border:1px solid #fff4;border-radius:10px;padding:10px 12px;font:inherit}
 #shot{width:76px;height:76px;border-radius:50%;background:#fff;border:6px solid #fff6}
-#shot:active{transform:scale(.92)}.on{background:var(--ac)!important}
+#shot:active{transform:scale(.92)}.on{background:var(--ac)!important;color:#04140c}
 #meter{position:fixed;top:64px;left:16px;right:16px;height:6px;background:#fff2;border-radius:3px}
 #bar{height:100%;width:0;border-radius:3px;background:var(--bad);transition:width .15s}
-#info{position:fixed;top:78px;left:16px;font-size:13px;text-shadow:0 1px 2px #000}
+#info{position:fixed;top:76px;left:16px;font-size:13px;text-shadow:0 1px 2px #000}
+#guide{position:fixed;top:100px;left:16px;right:16px;background:#000a;border-radius:12px;padding:10px 12px;font-size:14px;line-height:1.35}
+#guide b{color:var(--ac)}#pbar{height:4px;background:#fff2;border-radius:2px;margin-top:8px}#pfill{height:100%;width:0;background:var(--ac);border-radius:2px}
+#gnav{display:flex;justify-content:space-between;margin-top:8px}#gnav button{padding:6px 10px;font-size:13px}
+#hint{position:fixed;left:50%;bottom:130px;transform:translateX(-50%);padding:10px 16px;border-radius:999px;font-weight:600;font-size:15px;white-space:nowrap;background:#000a;transition:background .2s}
+#thumb{position:fixed;right:16px;bottom:180px;width:84px;border-radius:8px;border:2px solid #fff6;opacity:.9;display:none}
+#arrow{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:64px;opacity:.85;text-shadow:0 2px 8px #000;pointer-events:none}
 #flash{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;transition:opacity .2s}
-#start{position:fixed;inset:0;display:grid;place-items:center;background:var(--bg);padding:24px;text-align:center}
-#start p{max-width:420px;line-height:1.5;margin:12px 0 20px;opacity:.85}
+#start{position:fixed;inset:0;display:grid;place-items:center;background:var(--bg);padding:24px;text-align:center;overflow:auto}
+#start ol{text-align:left;max-width:420px;margin:12px auto 20px;line-height:1.5;opacity:.9;padding-left:20px}
 </style></head><body>
 <video id="v" playsinline muted autoplay></video>
 <div class="top"><input id="name" placeholder="Nombre del proyecto (ej. Hotel_Hab101)"></div>
 <div id="meter"><div id="bar"></div></div><div id="info">Nitidez: –  ·  Fotos: 0</div>
+<div id="guide"><div id="gtxt"></div><div id="pbar"><div id="pfill"></div></div>
+<div id="gnav"><button id="gprev">‹ Fase anterior</button><button id="gnext">Siguiente fase ›</button></div></div>
+<div id="arrow"></div><img id="thumb" alt="">
+<div id="hint">Apunta a la habitación</div>
 <div class="bot"><button id="auto">Auto: off</button><button id="shot" aria-label="Capturar"></button><button id="zip">Exportar ZIP</button></div>
 <div id="flash"></div>
 <div id="start"><div><h2>Northing · Captura 3D</h2>
-<p>Camina despacio alrededor del espacio. Cada foto debe compartir ~70% con la anterior. Toma vueltas a dos alturas (pecho y rodilla) y apunta a esquinas, no a paredes lisas. Luz pareja, sin moverte rápido.</p>
+<ol><li>Prende todas las luces, sin personas moviéndose.</li>
+<li>Sigue las fases de la guía de arriba. La burbuja de abajo te dice cuándo moverte y cuándo disparar.</li>
+<li><b>Nunca gires parado en un punto</b>: da pasos laterales de 20–30 cm entre fotos, como cangrejo.</li>
+<li>Apunta a objetos con textura; evita encuadrar solo pared blanca, techo, espejos o ventanas.</li></ol>
 <button id="go" class="on">Iniciar cámara</button></div></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>
-const v=document.getElementById('v'),bar=document.getElementById('bar'),info=document.getElementById('info');
-const shots=[];let sharp=0,auto=false,lastAuto=0,lastSig=null;
-const MIN_SHARP=60;            // umbral de nitidez (varianza Laplaciana)
-const AUTO_MS=900;             // intervalo mínimo en modo auto
+const v=document.getElementById('v'),bar=document.getElementById('bar'),info=document.getElementById('info'),hint=document.getElementById('hint'),arrow=document.getElementById('arrow');
+const shots=[];let sharp=0,auto=false,lastAuto=0,lastSig=null,heading=null,lastHeading=null,phase=0,phaseStart=0;
+const MIN_SHARP=60, AUTO_MS=900, MV_MIN=6, MV_MAX=35, TURN_MAX=20;
+const PHASES=[
+ {t:'Fase 1 · Vuelta alta',d:'Pegado a las paredes, celular a la altura del pecho, <b>apuntando al centro</b>. Avanza de lado alrededor de toda la habitación.',n:40},
+ {t:'Fase 2 · Vuelta baja',d:'Repite la vuelta con el celular a la <b>altura de la rodilla</b>, inclinado un poco hacia arriba.',n:30},
+ {t:'Fase 3 · Desde el centro',d:'Párate en el centro y da pasos cortos <b>mirando hacia las paredes</b>, cubriendo cada mueble.',n:20},
+ {t:'Fase 4 · Esquinas y detalles',d:'Cada esquina desde <b>dos posiciones</b>, y detalles (cama, cuadros, puertas) acercándote despacio.',n:20}];
+function renderGuide(){const p=PHASES[phase],k=shots.length-phaseStart;
+ document.getElementById('gtxt').innerHTML=`<b>${p.t}</b> (${Math.min(k,p.n)}/${p.n})<br>${p.d}`;
+ document.getElementById('pfill').style.width=Math.min(100,k/p.n*100)+'%';
+ document.getElementById('gprev').disabled=phase===0;
+ document.getElementById('gnext').textContent=phase===PHASES.length-1?'Terminar ✓':'Siguiente fase ›'}
+function setPhase(i){if(i<0)return;if(i>=PHASES.length){setHint('Captura completa: exporta el ZIP','var(--ac)');return}
+ phase=i;phaseStart=shots.length;renderGuide()}
+document.getElementById('gnext').onclick=()=>setPhase(phase+1);document.getElementById('gprev').onclick=()=>setPhase(phase-1);
+addEventListener('deviceorientation',e=>{if(e.alpha!=null)heading=e.alpha});
+function turnDiff(){if(heading==null||lastHeading==null)return 0;let d=Math.abs(heading-lastHeading)%360;return d>180?360-d:d}
 const sm=document.createElement('canvas');sm.width=160;sm.height=120;const sx=sm.getContext('2d',{willReadFrequently:true});
 document.getElementById('go').onclick=async()=>{
-  try{const s=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:'environment',width:{ideal:4032},height:{ideal:3024}}});
-  v.srcObject=s;document.getElementById('start').remove();loop();}catch(e){alert('No se pudo abrir la cámara: '+e.message)}
+  try{if(window.DeviceOrientationEvent&&DeviceOrientationEvent.requestPermission)try{await DeviceOrientationEvent.requestPermission()}catch(e){}
+  const s=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:'environment',width:{ideal:4032},height:{ideal:3024}}});
+  v.srcObject=s;document.getElementById('start').remove();renderGuide();loop();}catch(e){alert('No se pudo abrir la cámara: '+e.message)}
 };
-function analyze(){ // nitidez + firma de baja resolución para detectar movimiento
-  sx.drawImage(v,0,0,160,120);const d=sx.getImageData(0,0,160,120).data,g=new Float32Array(19200);
+function analyze(){sx.drawImage(v,0,0,160,120);const d=sx.getImageData(0,0,160,120).data,g=new Float32Array(19200);
   for(let i=0;i<19200;i++)g[i]=d[i*4]*.299+d[i*4+1]*.587+d[i*4+2]*.114;
-  let s=0,s2=0,n=0;for(let y=1;y<119;y++)for(let x=1;x<159;x++){const i=y*160+x,l=4*g[i]-g[i-1]-g[i+1]-g[i-160]-g[i+160];s+=l;s2+=l*l;n++}
+  let s=0,s2=0,n=0,tex=0;for(let y=1;y<119;y++)for(let x=1;x<159;x++){const i=y*160+x,l=4*g[i]-g[i-1]-g[i+1]-g[i-160]-g[i+160];s+=l;s2+=l*l;n++;if(Math.abs(l)>25)tex++}
   const sig=new Float32Array(48);for(let i=0;i<19200;i++){const x=(i%160)/20|0,y=(i/160|0)/20|0;sig[y*8+x]+=g[i]/400}
-  return{sharp:s2/n-(s/n)**2,sig}}
+  return{sharp:s2/n-(s/n)**2,sig,tex:tex/n}}
 function moved(sig){if(!lastSig)return 99;let m=0;for(let i=0;i<48;i++)m+=Math.abs(sig[i]-lastSig[i]);return m/48}
+function setHint(t,c){hint.textContent=t;hint.style.background=c}
 function loop(){if(v.readyState>=2){const a=analyze();sharp=a.sharp;
   const p=Math.min(100,sharp/(MIN_SHARP*2)*100);bar.style.width=p+'%';bar.style.background=sharp<MIN_SHARP?'var(--bad)':sharp<MIN_SHARP*1.5?'var(--wr)':'var(--ac)';
   info.textContent=`Nitidez: ${sharp|0}  ·  Fotos: ${shots.length}`;
-  const mv=moved(a.sig);
-  if(auto&&Date.now()-lastAuto>AUTO_MS&&sharp>=MIN_SHARP&&mv>6&&mv<40)capture(a.sig); // se movió lo suficiente, sin exceso
+  const mv=moved(a.sig),tr=turnDiff();let ok=false;
+  if(sharp<MIN_SHARP){setHint('Quieto: imagen movida','var(--bad)');arrow.textContent=''}
+  else if(a.tex<0.02){setHint('Poca textura: apunta a muebles u objetos','var(--wr)');arrow.textContent=''}
+  else if(!lastSig){setHint('Toma la primera foto','var(--ac)');arrow.textContent='';ok=true}
+  else if(tr>TURN_MAX){setHint('Giraste mucho: regresa un poco','var(--bad)');arrow.textContent='↺'}
+  else if(mv>MV_MAX){setHint('Te alejaste mucho: regresa un poco','var(--bad)');arrow.textContent='↩'}
+  else if(mv<MV_MIN){setHint('Da un paso lateral (20–30 cm)','#0009');arrow.textContent='⇢'}
+  else{setHint('¡Ahora! Dispara','var(--ac)');arrow.textContent='';ok=true}
+  if(auto&&ok&&lastSig&&Date.now()-lastAuto>AUTO_MS)capture(a.sig);
  }requestAnimationFrame(loop)}
-function capture(sig){if(sharp<MIN_SHARP){info.textContent='Foto movida, quédate quieto';return}
+function capture(sig){if(sharp<MIN_SHARP)return;
   const c=document.createElement('canvas');c.width=v.videoWidth;c.height=v.videoHeight;c.getContext('2d').drawImage(v,0,0);
-  c.toBlob(b=>{shots.push(b)},'image/jpeg',.92);lastAuto=Date.now();lastSig=sig||analyze().sig;
+  c.toBlob(b=>{shots.push(b);renderGuide();const p=PHASES[phase];if(shots.length-phaseStart>=p.n&&phase<PHASES.length-1){setPhase(phase+1);if(navigator.vibrate)navigator.vibrate([80,60,80])}},'image/jpeg',.92);
+  const t=document.getElementById('thumb');t.src=c.toDataURL('image/jpeg',.4);t.style.display='block';
+  lastAuto=Date.now();lastSig=sig||analyze().sig;lastHeading=heading;
   const f=document.getElementById('flash');f.style.opacity=.6;setTimeout(()=>f.style.opacity=0,80);if(navigator.vibrate)navigator.vibrate(30)}
 document.getElementById('shot').onclick=()=>capture();
 document.getElementById('auto').onclick=e=>{auto=!auto;e.target.textContent='Auto: '+(auto?'on':'off');e.target.classList.toggle('on',auto)};
 document.getElementById('zip').onclick=async()=>{
   const btn=document.getElementById('zip');
   if(!shots.length)return alert('No hay fotos');
-  if(typeof JSZip==='undefined')return alert('No cargó el compresor. Revisa internet y recarga la app (las fotos actuales se perderían: exporta después de recargar).');
+  if(typeof JSZip==='undefined')return alert('No cargó el compresor. Revisa internet y recarga la app.');
   try{
     btn.disabled=true;
     const name=(document.getElementById('name').value||'captura').replace(/[^\w-]/g,'_'),z=new JSZip(),f=z.folder('images');
